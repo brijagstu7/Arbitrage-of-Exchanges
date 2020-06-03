@@ -1,3 +1,6 @@
+# *****     主程序         **********
+
+
 import get_price as gp
 import sys
 
