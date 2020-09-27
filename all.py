@@ -13,7 +13,7 @@ import datetime
 
 chrome_options = Options()
 # 设置chrome浏览器无界面模式
-chrome_options.add_argument('--headless')
+# chrome_options.add_argument('--headless')
 
 save_info_at = "/Users/yangsijie/Documents/MuMu共享文件夹/"
 
@@ -39,6 +39,8 @@ document = wb.Chrome('/usr/local/Cellar/python@3.8/3.8.5/bin/chromedriver', chro
 # 超时设置
 document.set_page_load_timeout(5)
 document.set_script_timeout(5)
+
+
 # 这两种设置都进行才有效。如果超时，会报错（若不设置，则超时多久都不报错）
 
 
@@ -83,7 +85,8 @@ def itr_banks(i):
                 bi.append(
                     ["现汇: 人民币", "现汇: " + strs[0], bank_names[i], float(strs[3]) * (1 / int(strs[1]))])  # 现汇卖出价
                 bi.append(
-                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i], 1 / (float(strs[2]) * (1 / int(strs[1])))])  # 现汇买入价
+                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i],
+                     1 / (float(strs[2]) * (1 / int(strs[1])))])  # 现汇买入价
             except BaseException:
                 continue
 
@@ -100,7 +103,8 @@ def itr_banks(i):
                 bi.append(
                     ["现汇: 人民币", "现汇: " + strs[0], bank_names[i], float(strs[3]) * (1 / int(strs[1]))])  # 现汇卖出价
                 bi.append(
-                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i], 1 / (float(strs[5]) * (1 / int(strs[1])))])  # 现汇买入价
+                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i],
+                     1 / (float(strs[5]) * (1 / int(strs[1])))])  # 现汇买入价
             except BaseException:
                 continue
 
@@ -137,7 +141,8 @@ def itr_banks(i):
                 bi.append(
                     ["现汇: 人民币", "现汇: " + strs[0], bank_names[i], float(strs[6]) * (1 / int(strs[2]))])  # 现汇卖出价
                 bi.append(
-                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i], 1 / (float(strs[4]) * (1 / int(strs[2])))])  # 现汇买入价
+                    ["现汇: " + strs[0], "现汇: 人民币", bank_names[i],
+                     1 / (float(strs[4]) * (1 / int(strs[2])))])  # 现汇买入价
             except BaseException:
                 continue
     elif bank_names[i] == "agricultural bank of china":
@@ -160,151 +165,151 @@ def itr_banks(i):
 
     document.close()
     return bi
+    # your have to add d.close before end of the process (chrome driver does not handle auto-close for child processes)
 
 
-# your have to add d.close before end of the process (chrome driver does not handle auto-close for child processes)
+if __name__ == '__main__':
+
+    p = pool()
+
+    bank_info = p.map(itr_banks, range(len(bank_sites)))
+    # flatten the list using sum
+    bank_info = sum(bank_info, [])
+
+    p.close()
+    p.join()
+    end = time.time()
+    print("Total time used on fetching: %0.3f" % (end - start))
+
+    # a new manipulation will be needed if new bank's exchange rates are added to  bank_info
+    for e in bank_info:  # normalize
+        e[0] = re.sub("\(.*\)", "", e[0])
+        e[1] = re.sub("\(.*\)", "", e[1])
+        e[0] = re.sub("/.*", "", e[0])
+        e[1] = re.sub("/.*", "", e[1])
+    # !!!!!
+    # CAUTION THERE MAY BE LOSSES OF WORD 现钞，现汇
+
+    currencies = []
+    for item in bank_info:
+        name0 = item[0]
+        name1 = item[1]
+        if name0 not in currencies:
+            currencies.append(name0)
+        if name1 not in currencies:
+            currencies.append(name1)
+
+    n = len(currencies)
+
+    # 3d
+    floyd_matrix = [[[float("inf") for i in range(3)] for i in range(len(currencies))] for i in range(len(currencies))]
+
+    # let number of currencies follow the sequence of currency array
+    for l in bank_info:
+        if l[3] < floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][2]:
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][0] = bank_names.index(
+                l[2])  # bank no of last exchange
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][1] = currencies.index(l[0])  # last currency no
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][2] = l[3]  # price
+
+    for i in range(len(currencies)):
+        floyd_matrix[i][i][2] = 1
+        floyd_matrix[i][i][1] = i
 
 
-p = pool()
+    # 如果经过搜索没有找到从s到e的路径（即，它是循环的"或者是断的即inf"）就返回none 或者 ，否则返回路径
+    # 满足d[i][k][2] * d[k][j][2] < d[I][j][2]之后，d[i][k][2] 和 d[k][j][2] 都不为inf，因此d[k][j][1]
+    #       和d[i][k][1]都不为inf（可以归纳的证明），所以也就不存在使得m为inf的情况
+    def check_seq(s, e):
+        ll = [e]
+        m = e
+        for i in range(len(currencies) + 1):
+            try:
+                m = floyd_matrix[s][m][1]
+            except TypeError:
+                return 1
+            ll.append(m)
+            if m == s:
+                ll.reverse()
+                return ll
 
-bank_info = p.map(itr_banks, range(len(bank_sites)))
-# flatten the list using sum
-bank_info = sum(bank_info, [])
-
-p.close()
-p.join()
-end = time.time()
-print("Total time used on fetching: %0.3f" % (end - start))
-
-# a new manipulation will be needed if new bank's exchange rates are added to  bank_info
-for e in bank_info:  # normalize
-    e[0] = re.sub("\(.*\)", "", e[0])
-    e[1] = re.sub("\(.*\)", "", e[1])
-    e[0] = re.sub("/.*", "", e[0])
-    e[1] = re.sub("/.*", "", e[1])
-# !!!!!
-# CAUTION THERE MAY BE LOSSES OF WORD 现钞，现汇
-
-currencies = []
-for item in bank_info:
-    name0 = item[0]
-    name1 = item[1]
-    if name0 not in currencies:
-        currencies.append(name0)
-    if name1 not in currencies:
-        currencies.append(name1)
-
-n = len(currencies)
-
-# 3d
-document = [[[float("inf") for i in range(3)] for i in range(len(currencies))] for i in range(len(currencies))]
-
-# we let number of currencies follow the sequence of currency array
-for l in bank_info:
-    if l[3] < document[currencies.index(l[0])][currencies.index(l[1])][2]:
-        document[currencies.index(l[0])][currencies.index(l[1])][0] = bank_names.index(
-            l[2])  # bank no of last exchange
-        document[currencies.index(l[0])][currencies.index(l[1])][1] = currencies.index(l[0])  # last currency no
-        document[currencies.index(l[0])][currencies.index(l[1])][2] = l[3]  # price
-
-for i in range(len(currencies)):
-    document[i][i][2] = 1
-    document[i][i][1] = i
-
-
-# 如果经过搜索没有找到从s到e的路径（即，它是循环的"或者是断的即inf"）就返回none 或者 ，否则返回路径
-# 满足d[i][k][2] * d[k][j][2] < d[I][j][2]之后，d[i][k][2] 和 d[k][j][2] 都不为inf，因此d[k][j][1]
-#       和d[i][k][1]都不为inf（可以归纳的证明），所以也就不存在使得m为inf的情况
-def check_seq(s, e):
-    ll = [e]
-    m = e
-    for i in range(len(currencies) + 1):
-        try:
-            m = document[s][m][1]
-        except TypeError:
-            return 1
-        ll.append(m)
-        if m == s:
+        if i == len(currencies):
+            return None
+        else:
             ll.reverse()
             return ll
 
-    if i == len(currencies):
-        return None
-    else:
-        ll.reverse()
-        return ll
+
+    def find_dup(ll1, ll2):
+        for i in range(len(ll1) - 1):
+            for x in range(len(ll2) - 1):
+                if ll1[i] == ll2[x] and ll1[i + 1] == ll2[x + 1]:
+                    return True
+        return False
 
 
-def find_dup(ll1, ll2):
-    for i in range(len(ll1) - 1):
-        for x in range(len(ll2) - 1):
-            if ll1[i] == ll2[x] and ll1[i + 1] == ll2[x + 1]:
-                return True
-    return False
-
-
-for k in range(n):
-    for i in range(n):
-        for j in range(n):
-            if document[i][k][2] * document[k][j][2] < document[i][j][2]:
-                # no duplicated paths are allowed to appear both in l1 and l2
-                # it can be proved that any condition specified here can lead to a valid proof of correct result
-                #     for a shortest path collection under the specified condition.
-                l1 = check_seq(i, k)
-                l2 = check_seq(k, j)
-                if type(l1) == list and type(l2) == list:
-                    if find_dup(l1, l2):
+    for k in range(n):
+        for i in range(n):
+            for j in range(n):
+                if floyd_matrix[i][k][2] * floyd_matrix[k][j][2] < floyd_matrix[i][j][2]:
+                    # no duplicated paths are allowed to appear both in l1 and l2
+                    # it can be proved that any condition specified here can lead to a valid proof of correct result
+                    #     for a shortest path collection under the specified condition.
+                    l1 = check_seq(i, k)
+                    l2 = check_seq(k, j)
+                    if type(l1) == list and type(l2) == list:
+                        if find_dup(l1, l2):
+                            continue
+                    else:  # else?
                         continue
-                else:  # else?
-                    continue
-                document[i][j][2] = document[i][k][2] * document[k][j][2]
-                document[i][j][1] = document[k][j][1]
-                document[i][j][0] = document[k][j][0]
+                    floyd_matrix[i][j][2] = floyd_matrix[i][k][2] * floyd_matrix[k][j][2]
+                    floyd_matrix[i][j][1] = floyd_matrix[k][j][1]
+                    floyd_matrix[i][j][0] = floyd_matrix[k][j][0]
 
-# describe the path
+    # describe the path
 
-ok = [0 for i in range(n)]
-for i in range(n):
-    if document[i][i][2] < 1:  # 00
-        ok[i] = 1
+    ok = [0 for i in range(n)]
+    for i in range(n):
+        if floyd_matrix[i][i][2] < 1:  # 00
+            ok[i] = 1
 
-# It can be proved that all [price]s below are initial prices, that is, they exist in [bank_list].
-# 描述套汇过程的语句
-arbitrage = ["" for i in range(n)]
-for i in range(n):
-    if ok[i] == 1:
-        arbitrage[i] = bank_names[i]
-        last_cur = -1
-        while i != last_cur:
-            if last_cur == -1:
-                last_cur = document[i][i][1]
-                b = document[i][i][0]
-                price = document[int(last_cur)][i][2]
-                arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
-                    int(last_cur)]
-            else:
-                prev_last_cur = last_cur
-                last_cur = document[i][last_cur][1]
-                b = document[i][int(last_cur)][0]
-                price = document[int(last_cur)][prev_last_cur][2]
-                arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
-                    int(last_cur)]
+    # It can be proved that all [price]s below are initial prices, that is, they exist in [bank_list].
+    # 描述套汇过程的语句
+    arbitrage = ["" for i in range(n)]
+    for i in range(n):
+        if ok[i] == 1:
+            arbitrage[i] = bank_names[i]
+            last_cur = -1
+            while i != last_cur:
+                if last_cur == -1:
+                    last_cur = floyd_matrix[i][i][1]
+                    b = floyd_matrix[i][i][0]
+                    price = floyd_matrix[int(last_cur)][i][2]
+                    arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
+                        int(last_cur)]
+                else:
+                    prev_last_cur = last_cur
+                    last_cur = floyd_matrix[i][last_cur][1]
+                    b = floyd_matrix[i][int(last_cur)][0]
+                    price = floyd_matrix[int(last_cur)][prev_last_cur][2]
+                    arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
+                        int(last_cur)]
 
-for i in range(n):
-    if ok[i] == 1:
-        info = "存在" + bank_names[i] + "的套汇机会(而且经计算是最优的), 汇->汇: "
-        print(info)
-        print(arbitrage[i])
-        history_options = save_info_at + "history_options.txt"
-        with open(history_options, "a") as f:
-            f.write(datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
-            f.write('\n')
-            f.write(info)
-            f.write('\n')
-            f.write(arbitrage[i])
-            f.write('\n')
-        current_options = save_info_at + "current_options.txt"
-        with open(history_options, "w") as f:
-            f.write('#')
-            f.write(arbitrage[i])
-            f.write('\n')
+    for i in range(n):
+        if ok[i] == 1:
+            info = "存在" + bank_names[i] + "的套汇机会(而且经计算是最优的), 汇->汇: "
+            print(info)
+            print(arbitrage[i])
+            history_options = save_info_at + "history_options.txt"
+            with open(history_options, "a") as f:
+                f.write(datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
+                f.write('\n')
+                f.write(info)
+                f.write('\n')
+                f.write(arbitrage[i])
+                f.write('\n')
+            current_options = save_info_at + "current_options.txt"
+            with open(history_options, "w") as f:
+                f.write('#')
+                f.write(arbitrage[i])
+                f.write('\n')
