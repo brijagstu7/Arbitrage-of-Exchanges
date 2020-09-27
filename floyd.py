@@ -1,7 +1,7 @@
 # *****     主程序         **********
 
 
-import get_price as gp
+import all as gp
 import sys
 
 currencies = gp.currencies

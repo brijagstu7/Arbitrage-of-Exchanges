@@ -1,4 +1,4 @@
-import get_price as gp
+import all as gp
 
 
 def get_elem_with_prefix(l, e):

@@ -6,50 +6,58 @@ from multiprocessing import Pool as pool
 import time
 import datetime
 
-
+# 说明：此项目在2019年7月启动
 # 数字会有0.1%内的误差
 # 需要加入新的银行，并保证币种名字统一
+# 搜索 *** 以发现暂时没有着手解决的问题
 
 chrome_options = Options()
 # 设置chrome浏览器无界面模式
 chrome_options.add_argument('--headless')
 
-save_info_at = "/Users/yang_sijie/Documents/MuMu共享文件夹/"
+save_info_at = "/Users/yangsijie/Documents/MuMu共享文件夹/"
+
+# 以下被注释的是不能正常爬取的银行门户（但是经过一番探索也有可能可以爬取），注意bank_names,bank_sites注释的行码需要同步
 bank_names = ['bank of china',
               'bank of communications',
               'china merchants bank',
-              'industrial and commercial bank of china',
+              # 'industrial and commercial bank of china',
               # 'china everbright bank',
               # 'china guangfa bank',
               'agricultural bank of china']
 bank_sites = ['http://www.boc.cn/sourcedb/whpj/',
               'http://www.bankcomm.com/BankCommSite/simple/cn/whpj/queryExchangeResult.do?type=simple',
               'http://fx.cmbchina.com/hq/',
-              'http://www.icbc.com.cn/ICBCDynamicSite/Optimize/Quotation/QuotationListIframe.aspx',
+              # 'http://www.icbc.com.cn/ICBCDynamicSite/Optimize/Quotation/QuotationListIframe.aspx',
               # 'http://www.cebbank.com/site/ygzx/whpj/index.html?page=1',
               # 'http://www.cgbchina.com.cn/Info/12154717',
               'http://ewealth.abchina.com/ForeignExchange/ListPrice/']
 
+start = time.time()
+document = wb.Chrome('/usr/local/Cellar/python@3.8/3.8.5/bin/chromedriver', chrome_options=chrome_options)
+
+# 超时设置
+document.set_page_load_timeout(5)
+document.set_script_timeout(5)
+# 这两种设置都进行才有效。如果超时，会报错（若不设置，则超时多久都不报错）
+
 
 def itr_banks(i):
-    start = time.time()
-    d = wb.Chrome(chrome_options=chrome_options)
-
-    # 超时设置
-    d.set_page_load_timeout(5)
-    d.set_script_timeout(5)
-    # 这两种设置都进行才有效。如果超时，会报错（若不设置，则超时多久都不报错）
     try:
-        d.get(bank_sites[i])
+        document.get(bank_sites[i])
     except:
         print("Committed an error when visiting " + bank_names[i])
         return []
 
     bi = []
-    if i == 0:  # bank of china
+
+    # 此处用字符串比较会带来性能退步（和序号比较相比），但是当启用/禁用某个银行的爬取（通过注释bank_names和bank_sites）时
+    # ，能够减轻维护的负担
+    if bank_names[i] == "bank of china":
         # 货币名称 现汇买入价 现钞买入价 现汇卖出价  现钞卖出价 中行折算价
         # 0         1       2           3       4           5
-        price_list = d.find_elements_by_class_name("odd")
+        price_list = document.find_elements_by_class_name("odd")
+        # ****  此处存在一个小问题：只有奇数项被选中，偶数项的牌价没有在 price_list 中
 
         for item in price_list:
             strs = item.text.split()
@@ -62,8 +70,8 @@ def itr_banks(i):
                 bi.append(["现汇: " + strs[0], "现汇: 人民币", bank_names[i], 1 / (float(strs[1]) / 100)])  # 现汇买入价
             except BaseException:
                 continue
-    elif i == 1:  # bank of communications
-        price_list = d.find_elements_by_class_name("data")
+    elif bank_names[i] == "bank of communications":
+        price_list = document.find_elements_by_class_name("data")
 
         for item in price_list:
             # 币种	单位	  现汇买入价	现汇卖出价 现钞买入价 现钞卖出价
@@ -79,8 +87,8 @@ def itr_banks(i):
             except BaseException:
                 continue
 
-    elif i == 2:  # china merchants bank
-        price_list = d.find_elements_by_css_selector(".data>tbody>tr")
+    elif bank_names[i] == "china merchants bank":
+        price_list = document.find_elements_by_css_selector(".data>tbody>tr")
 
         for item in price_list:
             # 交易币	交易币单位	基本币	现汇卖出价	现钞卖出价	现汇买入价	现钞买入价	时间
@@ -96,9 +104,9 @@ def itr_banks(i):
             except BaseException:
                 continue
 
-    elif i == 3:  # industrial and commercial bank of china
-        d.find_element_by_id("refurbish").click()
-        price_list = d.find_elements_by_css_selector(".tableDataTable>tbody>tr")
+    elif bank_names[i] == "industrial and commercial bank of china":
+        document.find_element_by_id("refurbish").click()
+        price_list = document.find_elements_by_css_selector(".tableDataTable>tbody>tr")
         for item in price_list:
             # 币种 现汇买入价 现钞买入价 现汇卖出价 现钞卖出价 发布时间
             #          1        2       3           4
@@ -116,8 +124,8 @@ def itr_banks(i):
     elif i == 4:
         # for unknown reason , webdriver cannot open site
         "lczj_box"
-    elif i == 5:  # china guangfa bank
-        price_list = d.find_elements_by_css_selector('.ratetable>tbody>tr')
+    elif bank_names[i] == "china guangfa bank":
+        price_list = document.find_elements_by_css_selector('.ratetable>tbody>tr')
 
         for item in price_list:
             # '币种全称 币种简称 基数 中间价 现汇买入价 现钞买入价 现汇卖出价 现钞卖出价'
@@ -132,8 +140,8 @@ def itr_banks(i):
                     ["现汇: " + strs[0], "现汇: 人民币", bank_names[i], 1 / (float(strs[4]) * (1 / int(strs[2])))])  # 现汇买入价
             except BaseException:
                 continue
-    elif i == 6:  # agricultural bank of china
-        price_list = d.find_elements_by_css_selector('.bindCon>tr')
+    elif bank_names[i] == "agricultural bank of china":
+        price_list = document.find_elements_by_css_selector('.bindCon>tr')
 
         for item in price_list:
             # 货币 买入汇率	卖出汇率	现钞买入汇率
@@ -150,14 +158,13 @@ def itr_banks(i):
                 continue
     # having problem getting citi bank , hsbc's exchange rate,
 
-    end = time.time()
-    print("fetching data from %s takes %0.3f" % (bank_names[i], (end-start)))
-    d.close()
+    document.close()
     return bi
+
+
 # your have to add d.close before end of the process (chrome driver does not handle auto-close for child processes)
 
 
-start = time.time()
 p = pool()
 
 bank_info = p.map(itr_banks, range(len(bank_sites)))
@@ -167,7 +174,7 @@ bank_info = sum(bank_info, [])
 p.close()
 p.join()
 end = time.time()
-print("Total time used on fetching: %0.3f" % (end-start))
+print("Total time used on fetching: %0.3f" % (end - start))
 
 # a new manipulation will be needed if new bank's exchange rates are added to  bank_info
 for e in bank_info:  # normalize
@@ -187,24 +194,22 @@ for item in bank_info:
     if name1 not in currencies:
         currencies.append(name1)
 
-
 n = len(currencies)
 
 # 3d
-d = [[[float("inf") for i in range(3)] for i in range(len(currencies))] for i in range(len(currencies))]
-
+document = [[[float("inf") for i in range(3)] for i in range(len(currencies))] for i in range(len(currencies))]
 
 # we let number of currencies follow the sequence of currency array
 for l in bank_info:
-    if l[3] < d[currencies.index(l[0])][currencies.index(l[1])][2]:
-        d[currencies.index(l[0])][currencies.index(l[1])][0] = bank_names.index(
+    if l[3] < document[currencies.index(l[0])][currencies.index(l[1])][2]:
+        document[currencies.index(l[0])][currencies.index(l[1])][0] = bank_names.index(
             l[2])  # bank no of last exchange
-        d[currencies.index(l[0])][currencies.index(l[1])][1] = currencies.index(l[0])  # last currency no
-        d[currencies.index(l[0])][currencies.index(l[1])][2] = l[3]  # price
+        document[currencies.index(l[0])][currencies.index(l[1])][1] = currencies.index(l[0])  # last currency no
+        document[currencies.index(l[0])][currencies.index(l[1])][2] = l[3]  # price
 
 for i in range(len(currencies)):
-    d[i][i][2] = 1
-    d[i][i][1] = i
+    document[i][i][2] = 1
+    document[i][i][1] = i
 
 
 # 如果经过搜索没有找到从s到e的路径（即，它是循环的"或者是断的即inf"）就返回none 或者 ，否则返回路径
@@ -215,7 +220,7 @@ def check_seq(s, e):
     m = e
     for i in range(len(currencies) + 1):
         try:
-            m = d[s][m][1]
+            m = document[s][m][1]
         except TypeError:
             return 1
         ll.append(m)
@@ -241,7 +246,7 @@ def find_dup(ll1, ll2):
 for k in range(n):
     for i in range(n):
         for j in range(n):
-            if d[i][k][2] * d[k][j][2] < d[i][j][2]:
+            if document[i][k][2] * document[k][j][2] < document[i][j][2]:
                 # no duplicated paths are allowed to appear both in l1 and l2
                 # it can be proved that any condition specified here can lead to a valid proof of correct result
                 #     for a shortest path collection under the specified condition.
@@ -252,15 +257,15 @@ for k in range(n):
                         continue
                 else:  # else?
                     continue
-                d[i][j][2] = d[i][k][2] * d[k][j][2]
-                d[i][j][1] = d[k][j][1]
-                d[i][j][0] = d[k][j][0]
+                document[i][j][2] = document[i][k][2] * document[k][j][2]
+                document[i][j][1] = document[k][j][1]
+                document[i][j][0] = document[k][j][0]
 
 # describe the path
 
 ok = [0 for i in range(n)]
 for i in range(n):
-    if d[i][i][2] < 1:  # 00
+    if document[i][i][2] < 1:  # 00
         ok[i] = 1
 
 # It can be proved that all [price]s below are initial prices, that is, they exist in [bank_list].
@@ -272,22 +277,22 @@ for i in range(n):
         last_cur = -1
         while i != last_cur:
             if last_cur == -1:
-                last_cur = d[i][i][1]
-                b = d[i][i][0]
-                price = d[int(last_cur)][i][2]
+                last_cur = document[i][i][1]
+                b = document[i][i][0]
+                price = document[int(last_cur)][i][2]
                 arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
                     int(last_cur)]
             else:
                 prev_last_cur = last_cur
-                last_cur = d[i][last_cur][1]
-                b = d[i][int(last_cur)][0]
-                price = d[int(last_cur)][prev_last_cur][2]
+                last_cur = document[i][last_cur][1]
+                b = document[i][int(last_cur)][0]
+                price = document[int(last_cur)][prev_last_cur][2]
                 arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
                     int(last_cur)]
 
 for i in range(n):
     if ok[i] == 1:
-        info = "存在"+bank_names[i]+"的套汇机会(而且经计算是最优的), 汇->汇: "
+        info = "存在" + bank_names[i] + "的套汇机会(而且经计算是最优的), 汇->汇: "
         print(info)
         print(arbitrage[i])
         history_options = save_info_at + "history_options.txt"
@@ -303,5 +308,3 @@ for i in range(n):
             f.write('#')
             f.write(arbitrage[i])
             f.write('\n')
-
-
