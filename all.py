@@ -1,3 +1,11 @@
+
+# 说明：
+# 此项目在2019年7月启动，由长沙理工大学计算机系杨思捷独立完成
+# 顶点a->b->c的长度的现实意义就是1单位a币换成b币然后再换成c币最终得到多少c币
+# 数字会有0.1%内的误差（由机器浮点误差导致）
+# 需要加入新的银行，并保证币种名字统一
+# 搜索 *** 以发现暂时没有着手解决的问题
+
 from selenium import webdriver as wb
 from selenium.webdriver.chrome.options import Options
 import re
@@ -6,14 +14,11 @@ from multiprocessing import Pool as pool
 import time
 import datetime
 
-# 说明：此项目在2019年7月启动
-# 数字会有0.1%内的误差
-# 需要加入新的银行，并保证币种名字统一
-# 搜索 *** 以发现暂时没有着手解决的问题
 
 chrome_options = Options()
 # 设置chrome浏览器无界面模式
-# chrome_options.add_argument('--headless')
+chrome_options.add_argument('--headless')
+document = wb.Chrome('/usr/local/Cellar/python@3.8/3.8.5/bin/chromedriver', chrome_options=chrome_options)
 
 save_info_at = "/Users/yangsijie/Documents/MuMu共享文件夹/"
 
@@ -32,18 +37,11 @@ bank_sites = ['http://www.boc.cn/sourcedb/whpj/',
               # 'http://www.cebbank.com/site/ygzx/whpj/index.html?page=1',
               # 'http://www.cgbchina.com.cn/Info/12154717',
               'http://ewealth.abchina.com/ForeignExchange/ListPrice/']
-
-start = time.time()
-document = wb.Chrome('/usr/local/Cellar/python@3.8/3.8.5/bin/chromedriver', chrome_options=chrome_options)
-
-# 超时设置
-document.set_page_load_timeout(5)
-document.set_script_timeout(5)
+currencies = []
+bank_info = []
 
 
-# 这两种设置都进行才有效。如果超时，会报错（若不设置，则超时多久都不报错）
-
-
+# 由于某些原因，此函数内记录的边的长度并不等于项目说明中定义的数，而是它的倒数
 def itr_banks(i):
     try:
         document.get(bank_sites[i])
@@ -168,10 +166,17 @@ def itr_banks(i):
     # your have to add d.close before end of the process (chrome driver does not handle auto-close for child processes)
 
 
-if __name__ == '__main__':
+def run_iteration():
+    start = time.time()
+
+    # 超时设置
+    # 这两种设置都进行才有效。如果超时，会报错（若不设置，则超时多久都不报错）
+    document.set_page_load_timeout(5)
+    document.set_script_timeout(5)
 
     p = pool()
 
+    global bank_info
     bank_info = p.map(itr_banks, range(len(bank_sites)))
     # flatten the list using sum
     bank_info = sum(bank_info, [])
@@ -187,10 +192,10 @@ if __name__ == '__main__':
         e[1] = re.sub("\(.*\)", "", e[1])
         e[0] = re.sub("/.*", "", e[0])
         e[1] = re.sub("/.*", "", e[1])
+        e[3] = 1.0 / e[3]
     # !!!!!
     # CAUTION THERE MAY BE LOSSES OF WORD 现钞，现汇
 
-    currencies = []
     for item in bank_info:
         name0 = item[0]
         name1 = item[1]
@@ -199,117 +204,79 @@ if __name__ == '__main__':
         if name1 not in currencies:
             currencies.append(name1)
 
+
+def run_algo():
+    LAST_EDGE = 0
+    LAST_VERTEX = 1
+    VAR_MIN = 2
+    ORIGINAL_LEN = 3
+
     n = len(currencies)
 
-    # 3d
-    floyd_matrix = [[[float("inf") for i in range(3)] for i in range(len(currencies))] for i in range(len(currencies))]
+    minus_vertexes = []
+    minus_cycles = []
+
+    # for fixed i and j, consider floyd_matrix[i][j][0~2], where floyd_matrix[i][j][2] works for conventional
+    # usage of floyd_matrix[i][j] in Floyd-Warshall algorithm. floyd_matrix[i][j][0~1] are for floyd_next[i][j].
+    # floyd_matrix[i][j][3] means original length of edge i->j
+    floyd_matrix = [[[0 for i in range(4)] for i in range(len(currencies))] for i in range(len(currencies))]
 
     # let number of currencies follow the sequence of currency array
     for l in bank_info:
-        if l[3] < floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][2]:
-            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][0] = bank_names.index(
-                l[2])  # bank no of last exchange
-            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][1] = currencies.index(l[0])  # last currency no
-            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][2] = l[3]  # price
+        if l[3] > floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][VAR_MIN]:
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][LAST_EDGE] = bank_names.index(l[2])
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][LAST_VERTEX] = currencies.index(l[0])
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][VAR_MIN] = l[3]
+            floyd_matrix[currencies.index(l[0])][currencies.index(l[1])][ORIGINAL_LEN] = l[3]
+            #
+            #          ________________________________________
+            #         /          bank1:0.8    ->               \         Assume two vertexes and two edges like this,
+            #  ++++++                                           ++++++   floyd_matrix[*]["CNY"][LAST_EDGE] is "bank2"
+            #  + USD+                                           +CNY +   floyd_matrix[*]["CNY"][LAST_VERTEX] is "USD"
+            #  +    +                                           +    +   floyd_matrix["USD"]["CNY"][ORIGINAL_LEN] is 0.8
+            #  ++++++            bank2:1.2    <-                ++++++
+            #         \________________________________________/
 
-    for i in range(len(currencies)):
-        floyd_matrix[i][i][2] = 1
-        floyd_matrix[i][i][1] = i
-
-
-    # 如果经过搜索没有找到从s到e的路径（即，它是循环的"或者是断的即inf"）就返回none 或者 ，否则返回路径
-    # 满足d[i][k][2] * d[k][j][2] < d[I][j][2]之后，d[i][k][2] 和 d[k][j][2] 都不为inf，因此d[k][j][1]
-    #       和d[i][k][1]都不为inf（可以归纳的证明），所以也就不存在使得m为inf的情况
-    def check_seq(s, e):
-        ll = [e]
-        m = e
-        for i in range(len(currencies) + 1):
-            try:
-                m = floyd_matrix[s][m][1]
-            except TypeError:
-                return 1
-            ll.append(m)
-            if m == s:
-                ll.reverse()
-                return ll
-
-        if i == len(currencies):
-            return None
-        else:
-            ll.reverse()
-            return ll
-
-
-    def find_dup(ll1, ll2):
-        for i in range(len(ll1) - 1):
-            for x in range(len(ll2) - 1):
-                if ll1[i] == ll2[x] and ll1[i + 1] == ll2[x + 1]:
-                    return True
-        return False
-
-
-    for k in range(n):
-        for i in range(n):
-            for j in range(n):
-                if floyd_matrix[i][k][2] * floyd_matrix[k][j][2] < floyd_matrix[i][j][2]:
-                    # no duplicated paths are allowed to appear both in l1 and l2
-                    # it can be proved that any condition specified here can lead to a valid proof of correct result
-                    #     for a shortest path collection under the specified condition.
-                    l1 = check_seq(i, k)
-                    l2 = check_seq(k, j)
-                    if type(l1) == list and type(l2) == list:
-                        if find_dup(l1, l2):
-                            continue
-                    else:  # else?
-                        continue
-                    floyd_matrix[i][j][2] = floyd_matrix[i][k][2] * floyd_matrix[k][j][2]
-                    floyd_matrix[i][j][1] = floyd_matrix[k][j][1]
-                    floyd_matrix[i][j][0] = floyd_matrix[k][j][0]
-
-    # describe the path
-
-    ok = [0 for i in range(n)]
+    # Due to finding most negative cycle is NP-complete, I personally simplify our concern to a cycle of 2 and 3 vertex
     for i in range(n):
-        if floyd_matrix[i][i][2] < 1:  # 00
-            ok[i] = 1
-
-    # It can be proved that all [price]s below are initial prices, that is, they exist in [bank_list].
-    # 描述套汇过程的语句
-    arbitrage = ["" for i in range(n)]
-    for i in range(n):
-        if ok[i] == 1:
-            arbitrage[i] = bank_names[i]
-            last_cur = -1
-            while i != last_cur:
-                if last_cur == -1:
-                    last_cur = floyd_matrix[i][i][1]
-                    b = floyd_matrix[i][i][0]
-                    price = floyd_matrix[int(last_cur)][i][2]
-                    arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
-                        int(last_cur)]
-                else:
-                    prev_last_cur = last_cur
-                    last_cur = floyd_matrix[i][last_cur][1]
-                    b = floyd_matrix[i][int(last_cur)][0]
-                    price = floyd_matrix[int(last_cur)][prev_last_cur][2]
-                    arbitrage[i] += "<-在银行: " + bank_names[b] + " 以价格（最低价）" + str(price) + "进行套算, 原币种: " + currencies[
-                        int(last_cur)]
+        for j in range(n):
+            if floyd_matrix[i][j][VAR_MIN] * floyd_matrix[j][i][VAR_MIN] > 1:
+                minus_cycles.append([i, j, floyd_matrix[i][j][VAR_MIN] * floyd_matrix[j][i][VAR_MIN]])
 
     for i in range(n):
-        if ok[i] == 1:
-            info = "存在" + bank_names[i] + "的套汇机会(而且经计算是最优的), 汇->汇: "
-            print(info)
-            print(arbitrage[i])
-            history_options = save_info_at + "history_options.txt"
-            with open(history_options, "a") as f:
-                f.write(datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
-                f.write('\n')
-                f.write(info)
-                f.write('\n')
-                f.write(arbitrage[i])
-                f.write('\n')
-            current_options = save_info_at + "current_options.txt"
-            with open(history_options, "w") as f:
-                f.write('#')
-                f.write(arbitrage[i])
-                f.write('\n')
+        for j in range(n):
+            for k in range(n):
+                if floyd_matrix[i][j][VAR_MIN] * floyd_matrix[j][k][VAR_MIN] * floyd_matrix[k][i][VAR_MIN] > 1:
+                    minus_cycles.append(
+                        [i, j, k,
+                         floyd_matrix[i][j][VAR_MIN] * floyd_matrix[j][k][VAR_MIN] * floyd_matrix[k][i][VAR_MIN]])
+                if floyd_matrix[i][k][VAR_MIN] * floyd_matrix[k][j][VAR_MIN] * floyd_matrix[j][i][VAR_MIN] > 1:
+                    minus_cycles.append(
+                        [i, k, j,
+                         floyd_matrix[i][k][VAR_MIN] * floyd_matrix[k][j][VAR_MIN] * floyd_matrix[j][i][VAR_MIN]])
+
+    print(str(len(minus_cycles))+" methods in total:")
+    for cycle in minus_cycles:
+        if len(cycle) == 3:
+            print(
+                currencies[cycle[0]] + " -> " + currencies[cycle[1]] + " via " +
+                bank_names[int(floyd_matrix[cycle[0]][cycle[1]][LAST_EDGE])] + " , " +
+                currencies[cycle[1]] + " -> " + currencies[cycle[0]] + " via " +
+                bank_names[int(floyd_matrix[cycle[1]][cycle[0]][LAST_EDGE])] + " " +
+                str(cycle[2])
+            )
+        if len(cycle) == 4:
+            print(
+                currencies[cycle[0]] + " -> " + currencies[cycle[1]] + " via " +
+                bank_names[int(floyd_matrix[cycle[0]][cycle[1]][LAST_EDGE])] + " , " +
+                currencies[cycle[1]] + " -> " + currencies[cycle[2]] + " via " +
+                bank_names[int(floyd_matrix[cycle[1]][cycle[2]][LAST_EDGE])] + " , " +
+                currencies[cycle[2]] + " -> " + currencies[cycle[0]] + " via " +
+                bank_names[int(floyd_matrix[cycle[2]][cycle[0]][LAST_EDGE])] + " " +
+                str(cycle[3])
+            )
+
+
+if __name__ == '__main__':
+    run_iteration()
+    run_algo()
